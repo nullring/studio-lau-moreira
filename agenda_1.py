@@ -2,6 +2,9 @@ import streamlit as st
 from datetime import datetime, timedelta, date
 import urllib.parse
 import re
+import json
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 st.set_page_config(
     page_title="Studio Lau Moreira - Agendamento",
@@ -14,10 +17,24 @@ st.markdown("""
 <style>
 .main { background-color: #faf9f6; }
 h1, h2, h3 { color: #4a3b32; font-family: 'Helvetica Neue', sans-serif; }
-.stButton>button { background-color: #d4a373; color: white; border-radius: 8px; border: none; padding: 0.5rem 1rem; font-weight: bold; width: 100%; }
+
+/* BOTÕES MAIORES E MAIS CONFORTÁVEIS */
+.stButton>button { 
+    background-color: #d4a373; 
+    color: white; 
+    border-radius: 10px; 
+    border: none; 
+    padding: 0.8rem 1.2rem; 
+    font-size: 16px; 
+    font-weight: bold; 
+    width: 100%; 
+    box-shadow: 0px 3px 6px rgba(0,0,0,0.1);
+}
 .stButton>button:hover { background-color: #bc6c25; color: white; }
-.btn-gerenciar > button { background-color: #6c757d !important; color: white !important; padding: 0.4rem !important; }
+
+.btn-gerenciar > button { background-color: #6c757d !important; color: white !important; padding: 0.5rem !important; font-size: 14px !important; }
 .btn-gerenciar > button:hover { background-color: #5a6268 !important; }
+
 .card-admin { background-color: #ffffff; border: 1px solid #eae0d0; border-radius: 8px; padding: 14px; margin-bottom: 12px; box-shadow: 0px 2px 4px rgba(0,0,0,0.05); }
 .card-admin, .card-admin p, .card-admin span, .card-admin div { color: #3b2f2f !important; }
 .badge-alerta { background-color: #ffeeba; color: #856404; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }
@@ -54,15 +71,7 @@ if 'open_manual' not in st.session_state:
     st.session_state.open_manual = False
 
 if 'agendamentos_db' not in st.session_state:
-    niver_hoje_str = hoje_date.strftime("%d/%m")
-    niver_futuro_str = (hoje_date + timedelta(days=3)).strftime("%d/%m")
-    niver_passado_str = (hoje_date - timedelta(days=4)).strftime("%d/%m")
-    
-    st.session_state.agendamentos_db = [
-        {"nome": "Mariana Souza", "whatsapp": "41988887766", "aniversario": niver_hoje_str, "servico": "Brow Lamination", "valor": 120.00, "dia": "Data Passada", "data_obj": hoje_date - timedelta(days=45), "horario": "09:00", "status": "Realizado", "pagamento": "Pago"},
-        {"nome": "Camila Duarte", "whatsapp": "41977776655", "aniversario": niver_passado_str, "servico": "Design Personalizado", "valor": 40.00, "dia": "Data Futura", "data_obj": hoje_date + timedelta(days=2), "horario": "16:00", "status": "Agendado", "pagamento": "Pendente"},
-        {"nome": "Juliana Alves", "whatsapp": "41966665544", "aniversario": niver_futuro_str, "servico": "Design com Tintura", "valor": 55.00, "dia": "Data Futura", "data_obj": hoje_date + timedelta(days=3), "horario": "10:00", "status": "Agendado", "pagamento": "Pendente"}
-    ]
+    st.session_state.agendamentos_db = []
 
 def sanitizar_texto(texto):
     if not texto: return ""
@@ -89,6 +98,38 @@ def status_aniversario(data_str):
     except:
         return ""
 
+def adicionar_ao_google_calendar(nome, servico, data_obj, horario_str, duracao_horas):
+    try:
+        if "google_credentials" not in st.secrets:
+            return False 
+        
+        cred_dict = dict(st.secrets["google_credentials"])
+        cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+        
+        credentials = service_account.Credentials.from_service_account_info(
+            cred_dict, scopes=['https://www.googleapis.com/auth/calendar']
+        )
+        service = build('calendar', 'v3', credentials=credentials)
+        
+        hora, minuto = map(int, horario_str.split(":"))
+        inicio_dt = datetime.combine(data_obj, datetime.min.time().replace(hour=hora, minute=minuto))
+        fim_dt = inicio_dt + timedelta(hours=duracao_horas)
+        
+        evento = {
+            'summary': f"{servico} - {nome}",
+            'description': f"Cliente: {nome}\nProcedimento: {servico}\nGerado automaticamente pelo Studio Lau Moreira.",
+            'start': {'dateTime': inicio_dt.isoformat(), 'timeZone': 'America/Sao_Paulo'},
+            'end': {'dateTime': fim_dt.isoformat(), 'timeZone': 'America/Sao_Paulo'},
+        }
+        
+        # ID DA AGENDA FIXO AQUI
+        calendar_id = "studiolaumoreira@gmail.com"
+        service.events().insert(calendarId=calendar_id, body=evento).execute()
+        return True
+    except Exception as e:
+        print(f"Erro ao sincronizar com Google Calendar: {e}")
+        return False
+
 meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 dias_semana = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
 
@@ -108,7 +149,6 @@ servicos_info = {
     "Design Personalizado": {"preco": 40.00, "duracao": 1}
 }
 
-# CONTROLE DE ACESSO DISCRETO NA BARRA LATERAL PARA A PROFISSIONAL
 st.sidebar.title("Menu Restrito")
 acesso_admin = st.sidebar.text_input("Acesso da Profissional (Senha):", type="password")
 if acesso_admin == "@Aj170414":
@@ -146,6 +186,7 @@ if modo_acesso == "🌸 Portal de Agendamento (Cliente)":
             st.session_state.servico = servico_escolhido
             st.session_state.buco = incluir_buco
             st.session_state.preco = preco_total
+            st.session_state.duracao_servico = servicos_info[servico_escolhido]["duracao"] + (0.5 if incluir_buco else 0)
             st.session_state.etapa = 2
             st.rerun()
 
@@ -218,6 +259,7 @@ if modo_acesso == "🌸 Portal de Agendamento (Cliente)":
                 else:
                     aniversario_formatado = f"{aniv_numeros[:2]}/{aniv_numeros[2:]}"
                     servico_completo = st.session_state.servico + (" + Epilação de Buço" if st.session_state.buco else "")
+                    
                     novo_agendamento = {
                         "nome": nome_limpo,
                         "whatsapp": tel_limpo,
@@ -231,6 +273,15 @@ if modo_acesso == "🌸 Portal de Agendamento (Cliente)":
                         "pagamento": "Pendente"
                     }
                     st.session_state.agendamentos_db.append(novo_agendamento)
+                    
+                    adicionar_ao_google_calendar(
+                        nome_limpo, 
+                        servico_completo, 
+                        st.session_state.data_obj, 
+                        st.session_state.horario, 
+                        st.session_state.duracao_servico
+                    )
+                    
                     st.session_state.nome = nome_limpo
                     st.session_state.whatsapp_raw = tel_limpo
                     st.session_state.aniversario = aniversario_formatado
@@ -238,11 +289,11 @@ if modo_acesso == "🌸 Portal de Agendamento (Cliente)":
                     st.rerun()
 
     elif st.session_state.etapa == 5:
-        st.success("🎉 Agendamento realizado com sucesso!")
+        st.success("🎉 Agendamento realizado com sucesso e sincronizado com o Google Agenda!")
         texto_msg = f"Olá! Novo agendamento:\n- Cliente: {st.session_state.nome}\n- Procedimento: {st.session_state.servico}\n- Data: {st.session_state.dia} às {st.session_state.horario}"
         link_whatsapp = f"https://wa.me/5541995312006?text={urllib.parse.quote(texto_msg)}"
         
-        st.markdown(f'<a href="{link_whatsapp}" target="_blank"><button style="background-color: #25d366; color: white; padding: 12px; border-radius: 8px; width: 100%; font-weight: bold;">📲 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
+        st.markdown(f'<a href="{link_whatsapp}" target="_blank"><button style="background-color: #25d366; color: white; padding: 14px; border-radius: 10px; width: 100%; font-weight: bold; font-size: 16px; border: none;">📲 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
         if st.button("🔄 Novo Agendamento"):
             for key in list(st.session_state.keys()):
                 if key != 'agendamentos_db' and key != 'admin_logged_in': 
@@ -255,11 +306,11 @@ if modo_acesso == "🌸 Portal de Agendamento (Cliente)":
 elif modo_acesso == "🔒 Painel da Profissional (Admin)":
     st.subheader("🔒 Painel de Gestão")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📅 Agenda", "👥 Clientes", "💰 Financeiro", "🕰️️ Fichas & Pré-Venda"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📅 Agenda", "👥 Clientes", "💰 Financeiro", "🕰️ Fichas & Pré-Venda"])
     
     with tab1:
         if st.session_state.show_manual_success:
-            st.success("✅ Agendamento manual adicionado com sucesso!")
+            st.success("✅ Agendamento manual adicionado e sincronizado com o Google Agenda!")
             st.session_state.show_manual_success = False
 
         with st.expander("➕ Adicionar Agendamento Manual", expanded=st.session_state.open_manual):
@@ -282,6 +333,7 @@ elif modo_acesso == "🔒 Painel da Profissional (Admin)":
                 else:
                     data_obj_m = next(d["data_obj"] for d in lista_datas if d["label"] == dia_m_label)
                     preco_m = servicos_info[serv_m]["preco"] + (15.00 if buco_m else 0)
+                    duracao_m = servicos_info[serv_m]["duracao"] + (0.5 if buco_m else 0)
                     servico_completo_m = serv_m + (" + Epilação de Buço" if buco_m else "")
                     aniv_formatado_m = f"{aniv_numeros_m[:2]}/{aniv_numeros_m[2:]}"
                     
@@ -290,6 +342,14 @@ elif modo_acesso == "🔒 Painel da Profissional (Admin)":
                         "servico": servico_completo_m, "valor": preco_m, "dia": dia_m_label,
                         "data_obj": data_obj_m, "horario": horario_m, "status": "Agendado", "pagamento": "Pendente"
                     })
+                    
+                    adicionar_ao_google_calendar(
+                        nome_m, 
+                        servico_completo_m, 
+                        data_obj_m, 
+                        horario_m, 
+                        duracao_m
+                    )
                     
                     st.session_state.show_manual_success = True
                     st.session_state.open_manual = False
@@ -370,45 +430,48 @@ elif modo_acesso == "🔒 Painel da Profissional (Admin)":
                 clientes_unicos[wpp] = {"nome": ag['nome'], "aniversario": ag['aniversario'], "indices": []}
             clientes_unicos[wpp]["indices"].append(idx)
         
-        for wpp, dados in clientes_unicos.items():
-            alerta_niver = status_aniversario(dados['aniversario'])
-            
-            with st.expander(f"👤 {dados['nome']} — 📞 {wpp}"):
-                st.markdown(f"🎂 **Aniversário:** {dados['aniversario']} {alerta_niver}", unsafe_allow_html=True)
-                st.markdown("---")
+        if not clientes_unicos:
+            st.info("Nenhuma cliente cadastrada na base ainda.")
+        else:
+            for wpp, dados in clientes_unicos.items():
+                alerta_niver = status_aniversario(dados['aniversario'])
                 
-                st.write("✏️ **Editar Dados da Cliente:**")
-                novo_nome = st.text_input("Nome:", value=dados['nome'], key=f"edit_nome_{wpp}")
-                novo_wpp = st.text_input("WhatsApp:", value=wpp, key=f"edit_wpp_{wpp}")
-                novo_aniv = st.text_input("Aniversário (DD/MM):", value=dados['aniversario'], key=f"edit_aniv_{wpp}")
-                
-                if st.button("💾 Salvar Alterações", key=f"salvar_{wpp}"):
-                    for idx in dados["indices"]:
-                        st.session_state.agendamentos_db[idx]["nome"] = sanitizar_texto(novo_nome)
-                        st.session_state.agendamentos_db[idx]["whatsapp"] = re.sub(r'\D', '', novo_wpp)
-                        st.session_state.agendamentos_db[idx]["aniversario"] = sanitizar_texto(novo_aniv)
-                    st.success("Dados atualizados com sucesso!")
-                    st.rerun()
+                with st.expander(f"👤 {dados['nome']} — 📞 {wpp}"):
+                    st.markdown(f"🎂 **Aniversário:** {dados['aniversario']} {alerta_niver}", unsafe_allow_html=True)
+                    st.markdown("---")
                     
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                if st.session_state.confirmar_exclusao_cliente == wpp:
-                    st.warning(f"Tem certeza que deseja excluir permanentemente a cliente {dados['nome']} e todo o seu histórico?")
-                    col_s, col_n = st.columns(2)
-                    if col_s.button("✔️ Sim, Excluir", key=f"sim_cli_{wpp}"):
-                        st.session_state.agendamentos_db = [ag for ag in st.session_state.agendamentos_db if ag['whatsapp'] != wpp]
-                        st.session_state.confirmar_exclusao_cliente = None
-                        st.success("Cliente excluída da base de dados.")
+                    st.write("✏️ **Editar Dados da Cliente:**")
+                    novo_nome = st.text_input("Nome:", value=dados['nome'], key=f"edit_nome_{wpp}")
+                    novo_wpp = st.text_input("WhatsApp:", value=wpp, key=f"edit_wpp_{wpp}")
+                    novo_aniv = st.text_input("Aniversário (DD/MM):", value=dados['aniversario'], key=f"edit_aniv_{wpp}")
+                    
+                    if st.button("💾 Salvar Alterações", key=f"salvar_{wpp}"):
+                        for idx in dados["indices"]:
+                            st.session_state.agendamentos_db[idx]["nome"] = sanitizar_texto(novo_nome)
+                            st.session_state.agendamentos_db[idx]["whatsapp"] = re.sub(r'\D', '', novo_wpp)
+                            st.session_state.agendamentos_db[idx]["aniversario"] = sanitizar_texto(novo_aniv)
+                        st.success("Dados atualizados com sucesso!")
                         st.rerun()
-                    if col_n.button("✖️ Cancelar", key=f"nao_cli_{wpp}"):
-                        st.session_state.confirmar_exclusao_cliente = None
-                        st.rerun()
-                else:
-                    st.markdown("<div class='btn-gerenciar'>", unsafe_allow_html=True)
-                    if st.button(f"🗑️ Excluir Cliente da Base", key=f"del_cli_{wpp}"):
-                        st.session_state.confirmar_exclusao_cliente = wpp
-                        st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
+                        
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    if st.session_state.confirmar_exclusao_cliente == wpp:
+                        st.warning(f"Tem certeza que deseja excluir permanentemente a cliente {dados['nome']} e todo o seu histórico?")
+                        col_s, col_n = st.columns(2)
+                        if col_s.button("✔️️ Sim, Excluir", key=f"sim_cli_{wpp}"):
+                            st.session_state.agendamentos_db = [ag for ag in st.session_state.agendamentos_db if ag['whatsapp'] != wpp]
+                            st.session_state.confirmar_exclusao_cliente = None
+                            st.success("Cliente excluída da base de dados.")
+                            st.rerun()
+                        if col_n.button("✖️ Cancelar", key=f"nao_cli_{wpp}"):
+                            st.session_state.confirmar_exclusao_cliente = None
+                            st.rerun()
+                    else:
+                        st.markdown("<div class='btn-gerenciar'>", unsafe_allow_html=True)
+                        if st.button(f"🗑️ Excluir Cliente da Base", key=f"del_cli_{wpp}"):
+                            st.session_state.confirmar_exclusao_cliente = wpp
+                            st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
                 
     with tab3:
         st.write("Visão Financeira")
@@ -502,10 +565,10 @@ elif modo_acesso == "🔒 Painel da Profissional (Admin)":
                                 for real_ag in st.session_state.agendamentos_db:
                                     if real_ag['whatsapp'] == w and real_ag['data_obj'] == item['data_obj'] and real_ag['servico'] == item['servico']:
                                         real_ag['pagamento'] = "Pago"
-                                    st.success("Pagamento confirmado com sucesso!")
-                                    st.rerun()
+                                st.success("Pagamento confirmado com sucesso!")
+                                st.rerun()
 
                     st.markdown("<br>", unsafe_allow_html=True)
                     msg_prevenda = urllib.parse.quote(f"Oi {dados['nome']}! Tudo bem? Vi aqui na ficha que já faz um tempinho desde o seu último {ultimo_ag['servico']}. Vamos agendar seu retorno?")
                     link_wpp = f"https://wa.me/55{w}?text={msg_prevenda}"
-                    st.markdown(f'<a href="{link_wpp}" target="_blank"><button style="background-color: #25d366; color: white; padding: 6px; border-radius: 4px; width: 100%; border: none; font-size: 14px;">💬 Chamar para Retoque</button></a>', unsafe_allow_html=True)
+                    st.markdown(f'<a href="{link_wpp}" target="_blank"><button style="background-color: #25d366; color: white; padding: 10px; border-radius: 8px; width: 100%; border: none; font-size: 15px; font-weight: bold;">💬 Chamar para Retoque</button></a>', unsafe_allow_html=True)
