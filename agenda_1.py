@@ -100,11 +100,10 @@ def status_aniversario(data_str):
 
 def adicionar_ao_google_calendar(nome, servico, data_obj, horario_str, duracao_horas):
     try:
-        if "google_credentials" not in st.secrets:
+        if "google_credentials_json" not in st.secrets:
             return False 
         
-        cred_dict = dict(st.secrets["google_credentials"])
-        cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+        cred_dict = json.loads(st.secrets["google_credentials_json"])
         
         credentials = service_account.Credentials.from_service_account_info(
             cred_dict, scopes=['https://www.googleapis.com/auth/calendar']
@@ -122,7 +121,6 @@ def adicionar_ao_google_calendar(nome, servico, data_obj, horario_str, duracao_h
             'end': {'dateTime': fim_dt.isoformat(), 'timeZone': 'America/Sao_Paulo'},
         }
         
-        # ID DA AGENDA FIXO AQUI
         calendar_id = "studiolaumoreira@gmail.com"
         service.events().insert(calendarId=calendar_id, body=evento).execute()
         return True
@@ -289,7 +287,23 @@ if modo_acesso == "🌸 Portal de Agendamento (Cliente)":
                     st.rerun()
 
     elif st.session_state.etapa == 5:
-        st.success("🎉 Agendamento realizado com sucesso e sincronizado com o Google Agenda!")
+        st.success("🎉 Agendamento realizado com sucesso!")
+        
+        try:
+            sucesso_agenda = adicionar_ao_google_calendar(
+                st.session_state.nome, 
+                st.session_state.servico, 
+                st.session_state.data_obj, 
+                st.session_state.horario, 
+                st.session_state.duracao_servico
+            )
+            if sucesso_agenda:
+                st.info("📅 Evento sincronizado automaticamente com o Google Agenda da profissional!")
+            else:
+                st.warning("⚠️ O agendamento foi concluído, mas o Google Agenda não foi atualizado (verifique os Secrets no Streamlit).")
+        except Exception as e:
+            st.error(f"Erro na sincronização: {e}")
+
         texto_msg = f"Olá! Novo agendamento:\n- Cliente: {st.session_state.nome}\n- Procedimento: {st.session_state.servico}\n- Data: {st.session_state.dia} às {st.session_state.horario}"
         link_whatsapp = f"https://wa.me/5541995312006?text={urllib.parse.quote(texto_msg)}"
         
@@ -458,7 +472,7 @@ elif modo_acesso == "🔒 Painel da Profissional (Admin)":
                     if st.session_state.confirmar_exclusao_cliente == wpp:
                         st.warning(f"Tem certeza que deseja excluir permanentemente a cliente {dados['nome']} e todo o seu histórico?")
                         col_s, col_n = st.columns(2)
-                        if col_s.button("✔️️ Sim, Excluir", key=f"sim_cli_{wpp}"):
+                        if col_s.button("✔ Sim, Excluir", key=f"sim_cli_{wpp}"):
                             st.session_state.agendamentos_db = [ag for ag in st.session_state.agendamentos_db if ag['whatsapp'] != wpp]
                             st.session_state.confirmar_exclusao_cliente = None
                             st.success("Cliente excluída da base de dados.")
