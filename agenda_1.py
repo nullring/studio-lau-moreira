@@ -101,11 +101,23 @@ def status_aniversario(data_str):
 def adicionar_ao_google_calendar(nome, servico, data_obj, horario_str, duracao_horas):
     try:
         if "google_credentials" not in st.secrets:
+            st.error("⚠️ Credenciais ausentes nos Secrets.")
             return False 
         
-        # Converte a string JSON dos segredos em um dicionário Python válido
-        cred_dict = json.loads(st.secrets["google_credentials"])
+        # 1. Lê os segredos (funciona tanto se o Streamlit enviar como Texto ou Dicionário)
+        secrets_raw = st.secrets["google_credentials"]
+        if isinstance(secrets_raw, str):
+            cred_dict = json.loads(secrets_raw)
+        else:
+            cred_dict = dict(secrets_raw)
         
+        # 🔴 2. A CORREÇÃO PROFUNDA (BALA DE PRATA):
+        # Transforma a barra e o "n" literais (símbolo 92) numa quebra de linha real.
+        # Isso força a formatação perfeita do arquivo PEM que o Google exige.
+        if "private_key" in cred_dict:
+            cred_dict["private_key"] = cred_dict["private_key"].replace('\\n', '\n')
+        
+        # 3. Autenticação e Envio
         credentials = service_account.Credentials.from_service_account_info(
             cred_dict, scopes=['https://www.googleapis.com/auth/calendar']
         )
@@ -125,6 +137,7 @@ def adicionar_ao_google_calendar(nome, servico, data_obj, horario_str, duracao_h
         calendar_id = "studiolaumoreira@gmail.com"
         service.events().insert(calendarId=calendar_id, body=evento).execute()
         return True
+        
     except Exception as e:
         st.error(f"❌ Erro detalhado do Google Calendar: {e}")
         return False
