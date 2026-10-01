@@ -103,8 +103,8 @@ def adicionar_ao_google_calendar(nome, servico, data_obj, horario_str, duracao_h
         if "google_credentials" not in st.secrets:
             return False 
         
-        # Converte os segredos do Streamlit diretamente para dicionário
-        cred_dict = dict(st.secrets["google_credentials"])
+        # Converte a string JSON dos segredos em um dicionário Python válido
+        cred_dict = json.loads(st.secrets["google_credentials"])
         
         credentials = service_account.Credentials.from_service_account_info(
             cred_dict, scopes=['https://www.googleapis.com/auth/calendar']
