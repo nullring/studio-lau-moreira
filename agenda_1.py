@@ -102,7 +102,7 @@ for i in range(60):
         lista_datas.append({"label": label_data, "data_obj": data_calc.date()})
 
 servicos_info = {
-    "Brow Lamination": {"preco": 120.00, "duracao": 2},
+    "Brow Lamination": {"preco": 100.00, "duracao": 2},
     "Design com Henna": {"preco": 55.00, "duracao": 1},
     "Design com Tintura": {"preco": 55.00, "duracao": 1},
     "Design Personalizado": {"preco": 40.00, "duracao": 1}
@@ -111,7 +111,7 @@ servicos_info = {
 # CONTROLE DE ACESSO DISCRETO NA BARRA LATERAL PARA A PROFISSIONAL
 st.sidebar.title("Menu Restrito")
 acesso_admin = st.sidebar.text_input("Acesso da Profissional (Senha):", type="password")
-if acesso_admin == "lau123":
+if acesso_admin == "@Aj170414":
     st.session_state.admin_logged_in = True
 
 modo_acesso = "🌸 Portal de Agendamento (Cliente)"
@@ -255,7 +255,7 @@ if modo_acesso == "🌸 Portal de Agendamento (Cliente)":
 elif modo_acesso == "🔒 Painel da Profissional (Admin)":
     st.subheader("🔒 Painel de Gestão")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📅 Agenda", "👥 Clientes", "💰 Financeiro", "🕰️ Fichas & Pré-Venda"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📅 Agenda", "👥 Clientes", "💰 Financeiro", "🕰️️ Fichas & Pré-Venda"])
     
     with tab1:
         if st.session_state.show_manual_success:
@@ -371,4 +371,141 @@ elif modo_acesso == "🔒 Painel da Profissional (Admin)":
             clientes_unicos[wpp]["indices"].append(idx)
         
         for wpp, dados in clientes_unicos.items():
-            alerta_n
+            alerta_niver = status_aniversario(dados['aniversario'])
+            
+            with st.expander(f"👤 {dados['nome']} — 📞 {wpp}"):
+                st.markdown(f"🎂 **Aniversário:** {dados['aniversario']} {alerta_niver}", unsafe_allow_html=True)
+                st.markdown("---")
+                
+                st.write("✏️ **Editar Dados da Cliente:**")
+                novo_nome = st.text_input("Nome:", value=dados['nome'], key=f"edit_nome_{wpp}")
+                novo_wpp = st.text_input("WhatsApp:", value=wpp, key=f"edit_wpp_{wpp}")
+                novo_aniv = st.text_input("Aniversário (DD/MM):", value=dados['aniversario'], key=f"edit_aniv_{wpp}")
+                
+                if st.button("💾 Salvar Alterações", key=f"salvar_{wpp}"):
+                    for idx in dados["indices"]:
+                        st.session_state.agendamentos_db[idx]["nome"] = sanitizar_texto(novo_nome)
+                        st.session_state.agendamentos_db[idx]["whatsapp"] = re.sub(r'\D', '', novo_wpp)
+                        st.session_state.agendamentos_db[idx]["aniversario"] = sanitizar_texto(novo_aniv)
+                    st.success("Dados atualizados com sucesso!")
+                    st.rerun()
+                    
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                if st.session_state.confirmar_exclusao_cliente == wpp:
+                    st.warning(f"Tem certeza que deseja excluir permanentemente a cliente {dados['nome']} e todo o seu histórico?")
+                    col_s, col_n = st.columns(2)
+                    if col_s.button("✔️ Sim, Excluir", key=f"sim_cli_{wpp}"):
+                        st.session_state.agendamentos_db = [ag for ag in st.session_state.agendamentos_db if ag['whatsapp'] != wpp]
+                        st.session_state.confirmar_exclusao_cliente = None
+                        st.success("Cliente excluída da base de dados.")
+                        st.rerun()
+                    if col_n.button("✖️ Cancelar", key=f"nao_cli_{wpp}"):
+                        st.session_state.confirmar_exclusao_cliente = None
+                        st.rerun()
+                else:
+                    st.markdown("<div class='btn-gerenciar'>", unsafe_allow_html=True)
+                    if st.button(f"🗑️ Excluir Cliente da Base", key=f"del_cli_{wpp}"):
+                        st.session_state.confirmar_exclusao_cliente = wpp
+                        st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+                
+    with tab3:
+        st.write("Visão Financeira")
+        
+        filtro_fin = st.radio("Período de Análise:", ["Esta Semana", "Este Mês", "Todo o Período", "Personalizado"], horizontal=True)
+        
+        data_inicio, data_fim = None, None
+        if filtro_fin == "Personalizado":
+            st.write("Selecione o intervalo de datas:")
+            datas_selecionadas = st.date_input("Intervalo:", [hoje_date - timedelta(days=90), hoje_date], format="DD/MM/YYYY")
+            
+            if len(datas_selecionadas) == 2:
+                data_inicio, data_fim = datas_selecionadas
+            else:
+                st.warning("Selecione a data de início e a data de fim.")
+
+        fat_realizado, qtd_realizado = 0, 0
+        fat_previsto, qtd_previsto = 0, 0
+        
+        for ag in st.session_state.agendamentos_db:
+            d = ag["data_obj"]
+            status_ag = ag.get("status", "Agendado")
+            status_pagamento = ag.get("pagamento", "Pendente")
+            
+            if status_ag == "Falta":
+                continue
+            
+            incluir = False
+            if filtro_fin == "Todo o Período":
+                incluir = True
+            elif filtro_fin == "Este Mês":
+                if d.year == hoje_date.year and d.month == hoje_date.month: incluir = True
+            elif filtro_fin == "Esta Semana":
+                if d.isocalendar()[1] == hoje_date.isocalendar()[1] and d.year == hoje_date.year: incluir = True
+            elif filtro_fin == "Personalizado" and data_inicio and data_fim:
+                if data_inicio <= d <= data_fim: incluir = True
+            
+            if incluir:
+                if (d <= hoje_date or status_ag == "Realizado") and status_pagamento == "Pago":
+                    fat_realizado += ag["valor"]
+                    qtd_realizado += 1
+                elif status_ag == "Agendado" or (status_ag == "Realizado" and status_pagamento == "Pendente"):
+                    if d > hoje_date or status_pagamento == "Pendente":
+                        fat_previsto += ag["valor"]
+                        qtd_previsto += 1
+        
+        col_realizado, col_previsto = st.columns(2)
+        with col_realizado:
+            st.metric(label="✅ Faturamento Realizado (Pago)", value=f"R$ {fat_realizado:.2f}", delta=f"{qtd_realizado} pagos", delta_color="normal")
+        with col_previsto:
+            st.metric(label="⏳ Previsto / Pendente", value=f"R$ {fat_previsto:.2f}", delta=f"{qtd_previsto} itens", delta_color="off")
+
+    with tab4:
+        st.write("Ficha de Clientes (CRM) - Controle de Retoque & Pagamento")
+        st.caption("Acompanhe o histórico, o status de pagamento e saiba quem chamar para retoque.")
+        
+        passados = [ag for ag in st.session_state.agendamentos_db if ag["data_obj"] <= hoje_date or ag.get("status") == "Realizado"]
+        
+        fichas = {}
+        for ag in passados:
+            if ag.get("status") == "Falta": continue
+            w = ag["whatsapp"]
+            if w not in fichas: fichas[w] = {"nome": ag["nome"], "agendamentos": []}
+            fichas[w]["agendamentos"].append(ag)
+        
+        if not fichas:
+            st.info("Nenhum histórico de procedimentos realizados no período selecionado.")
+        else:
+            for w, dados in fichas.items():
+                historico_ordenado = sorted(dados["agendamentos"], key=lambda x: x["data_obj"], reverse=True)
+                ultimo_ag = historico_ordenado[0]
+                dias_passados = (hoje_date - ultimo_ag["data_obj"]).days
+                
+                tag_dias = f"<span class='badge-alerta'>Há {dias_passados} dias</span>" if dias_passados > 30 else f"<span class='badge-ok'>Há {dias_passados} dias</span>"
+                
+                with st.expander(f"👤 {dados['nome']} — Última visita: {dias_passados} dias atrás"):
+                    st.markdown(f"**Contato:** {w}")
+                    st.markdown(f"**Último Serviço:** {ultimo_ag['servico']} ({tag_dias})", unsafe_allow_html=True)
+                    st.markdown("---")
+                    st.markdown("**Histórico Completo de Atendimentos:**")
+                    
+                    for item_idx, item in enumerate(historico_ordenado):
+                        data_f = item["data_obj"].strftime("%d/%m/%Y")
+                        pag_status = item.get("pagamento", "Pendente")
+                        badge_pag = f"<span class='badge-pago'>Pago</span>" if pag_status == "Pago" else f"<span class='badge-pendente'>Pendente</span>"
+                        
+                        st.write(f"- {data_f}: {item['servico']} (R$ {item['valor']:.2f}) | Status: {badge_pag}", unsafe_allow_html=True)
+                        
+                        if pag_status == "Pendente":
+                            if st.button(f"Confirmar Pagamento de {item['servico']} ({data_f})", key=f"conf_pag_{w}_{item_idx}"):
+                                for real_ag in st.session_state.agendamentos_db:
+                                    if real_ag['whatsapp'] == w and real_ag['data_obj'] == item['data_obj'] and real_ag['servico'] == item['servico']:
+                                        real_ag['pagamento'] = "Pago"
+                                    st.success("Pagamento confirmado com sucesso!")
+                                    st.rerun()
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    msg_prevenda = urllib.parse.quote(f"Oi {dados['nome']}! Tudo bem? Vi aqui na ficha que já faz um tempinho desde o seu último {ultimo_ag['servico']}. Vamos agendar seu retorno?")
+                    link_wpp = f"https://wa.me/55{w}?text={msg_prevenda}"
+                    st.markdown(f'<a href="{link_wpp}" target="_blank"><button style="background-color: #25d366; color: white; padding: 6px; border-radius: 4px; width: 100%; border: none; font-size: 14px;">💬 Chamar para Retoque</button></a>', unsafe_allow_html=True)
