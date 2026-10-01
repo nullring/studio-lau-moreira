@@ -100,10 +100,12 @@ def status_aniversario(data_str):
 
 def adicionar_ao_google_calendar(nome, servico, data_obj, horario_str, duracao_horas):
     try:
-        if "google_credentials_json" not in st.secrets:
+        if "google_credentials" not in st.secrets:
+            st.error("⚠️ A chave 'google_credentials' não foi encontrada nos Secrets do Streamlit.")
             return False 
         
-        cred_dict = json.loads(st.secrets["google_credentials_json"])
+        # Carrega o JSON salvo nos secrets
+        cred_dict = json.loads(st.secrets["google_credentials"])
         
         credentials = service_account.Credentials.from_service_account_info(
             cred_dict, scopes=['https://www.googleapis.com/auth/calendar']
@@ -125,7 +127,8 @@ def adicionar_ao_google_calendar(nome, servico, data_obj, horario_str, duracao_h
         service.events().insert(calendarId=calendar_id, body=evento).execute()
         return True
     except Exception as e:
-        print(f"Erro ao sincronizar com Google Calendar: {e}")
+        # Mostra o erro exato na tela para sabermos o que corrigir
+        st.error(f"❌ Erro detalhado do Google Calendar: {e}")
         return False
 
 meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
